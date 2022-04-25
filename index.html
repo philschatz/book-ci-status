@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+
+    <h1>Books and their CI status</h1>
+    <ul id="book-status"/>
+
+    <script>
+        const report = document.querySelector('#book-status')
+        const ABL_URL = 'https://raw.githubusercontent.com/openstax/content-manager-approved-books/main/approved-book-list.json'
+        const GH_PREFIX = 'https://api.github.com/repos/openstax/{repo_name}/statuses/main'
+        
+        const statusMap = {
+            'success': '✅',
+            'pending': '🟡',
+            'failed': '❌'
+        }
+
+        function dom(tagName, attrs = {}, children = [], handlers = {}) {
+            let el
+            // The first argument can be a string or an element
+            if (typeof tagName === 'string')
+                el = document.createElement(tagName)
+            else
+                el = tagName
+            for (const [key, value] of Object.entries(attrs))
+                el.setAttribute(key, value)
+            for (const [key, value] of Object.entries(handlers))
+                el.addEventListener(key, value)
+            el.innerHTML = '' // clear the children
+            for (const child of children)
+                el.append(child)
+            return el
+        }
+
+        function addLi(repoName, status, errorMessage = null, targetUrl = null) {
+            report.appendChild(dom('li', {}, [
+                statusMap[status] || statusMap.failed,
+                ' ',
+                dom('a', {href: `https://github.com/openstax/${repoName}`}, [ repoName ]),
+                ': ',
+                targetUrl ? dom('a', {href: targetUrl}, [
+                    errorMessage || 'no-error-message'
+                ]) : errorMessage || 'no-error-message'
+            ]))
+        }
+
+        async function addBooks() {
+            const ablResp = await fetch(ABL_URL)
+            const abl = await ablResp.json()
+            const approvedBooks = abl.approved_books
+            console.log(approvedBooks)
+            for (const book of approvedBooks) {
+                const repoName = book.repository_name
+                const statusUrl = `https://api.github.com/repos/openstax/${repoName}/statuses/main`
+                const statusResp = await fetch(statusUrl)
+                // console.log(statusResp)
+                if (statusResp.status === 200) {
+                    const statusInfo = await statusResp.json()
+                    const failed = statusInfo.filter(s => s.state === 'failed')[0]
+                    const pending = statusInfo.filter(s => s.state === 'pending')[0]
+                    const success = statusInfo.filter(s => s.state === 'success')[0]
+                    
+                    const thingToReport = failed || pending || success
+                    if (thingToReport) {
+                        addLi(repoName, thingToReport.state, failed.description, failed.target_url)
+                    } else {
+                        addLi(repoName, 'success', 'No CI Tests ran')
+                    }
+                } else {
+                    addLi(repoName, 'failed', `${statusResp.status} Private?`)
+                    throw new Error('Failing so I can retain some API ratelimit karma')
+                }
+            }
+        }
+
+        addBooks().then(null, err => alert(err))
+    </script>
+</body>
+</html>
